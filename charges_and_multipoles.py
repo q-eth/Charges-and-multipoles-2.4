@@ -5,39 +5,51 @@ def load_charges(filename):
     data = np.loadtxt(filename)
     return data
 
-def compute_flux_box(charges, x_bounds, y_bounds, z_bounds, grid_density):
+def compute_flux_box(charges, x_bounds, y_bounds, z_bounds, density):
     epsilon_0 = 8.854187817e-12
     total_flux = 0
     
-    dx = (x_bounds[1] - x_bounds[0]) / grid_density
-    dy = (y_bounds[1] - y_bounds[0]) / grid_density
-    dz = (z_bounds[1] - z_bounds[0]) / grid_density
+    x_min, x_max = x_bounds
+    y_min, y_max = y_bounds
+    z_min, z_max = z_bounds
     
-    faces = [
-        (np.linspace(x_bounds[0], x_bounds[1], grid_density), np.array([y_bounds[0]] * grid_density), np.linspace(z_bounds[0], z_bounds[1], grid_density)),
-        (np.linspace(x_bounds[0], x_bounds[1], grid_density), np.array([y_bounds[1]] * grid_density), np.linspace(z_bounds[0], z_bounds[1], grid_density)),
-        (np.array([x_bounds[0]] * grid_density), np.linspace(y_bounds[0], y_bounds[1], grid_density), np.linspace(z_bounds[0], z_bounds[1], grid_density)),
-        (np.array([x_bounds[1]] * grid_density), np.linspace(y_bounds[0], y_bounds[1], grid_density), np.linspace(z_bounds[0], z_bounds[1], grid_density)),
-        (np.linspace(x_bounds[0], x_bounds[1], grid_density), np.linspace(y_bounds[0], y_bounds[1], grid_density), np.array([z_bounds[0]] * grid_density)),
-        (np.linspace(x_bounds[0], x_bounds[1], grid_density), np.linspace(y_bounds[0], y_bounds[1], grid_density), np.array([z_bounds[1]] * grid_density)),
-    ]
+    dx = (x_max - x_min) / (density)
+    dy = (y_max - y_min) / (density)
+    dz = (z_max - z_min) / (density)
     
-    for x_values, y_values, z_values in faces:
-        for x, y, z in zip(x_values, y_values, z_values):
-            E_total = np.array([0.0, 0.0, 0.0])
-            for charge in charges:
-                Q, x_c, y_c, z_c = charge
-                r_vec = np.array([x - x_c, y - y_c, z - z_c])
-                r = np.linalg.norm(r_vec)
-                if r > 0:
-                    E = (Q / (4 * np.pi * epsilon_0 * r**3)) * r_vec
-                    E_total += E
-            dA = dx * dy  # Approximate element area
-            total_flux += np.dot(E_total, np.array([1, 1, 1])) * dA
+    def electric_field_at_point(point):
+        E_total = np.array([0.0, 0.0, 0.0])
+        for charge in charges:
+            Q, x_c, y_c, z_c = charge
+            r_vec = np.array(point) - np.array([x_c, y_c, z_c])
+            r = np.linalg.norm(r_vec)
+            if r > 0:
+                E = (Q / (4 * np.pi * epsilon_0 * r**3)) * r_vec
+                E_total += E
+        return E_total
+    
+    def integrate_surface(a_range, b_range, c_fixed, normal, da, db):
+        flux = 0
+        a_vals = np.linspace(a_range[0], a_range[1], density)
+        b_vals = np.linspace(b_range[0], b_range[1], density)
+        dA = da * db
+        for a in a_vals:
+            for b in b_vals:
+                point = [a, b, c_fixed]
+                E = electric_field_at_point(point)
+                flux += np.dot(E, normal) * dA
+        return flux * 6
+    
+    total_flux += integrate_surface((x_min, x_max), (y_min, y_max), z_min, [0, 0, -1], dx, dy)
+    total_flux += integrate_surface((x_min, x_max), (y_min, y_max), z_max, [0, 0, 1], dx, dy)
+    total_flux += integrate_surface((y_min, y_max), (z_min, z_max), x_min, [-1, 0, 0], dy, dz)
+    total_flux += integrate_surface((y_min, y_max), (z_min, z_max), x_max, [1, 0, 0], dy, dz)
+    total_flux += integrate_surface((x_min, x_max), (z_min, z_max), y_min, [0, -1, 0], dx, dz)
+    total_flux += integrate_surface((x_min, x_max), (z_min, z_max), y_max, [0, 1, 0], dx, dz)
     
     return total_flux
 
-def compute_flux_sphere(charges, sphere_center, radius, grid_density=50):
+def compute_flux_sphere(charges, sphere_center, radius, grid_density):
     epsilon_0 = 8.854187817e-12
     total_flux = 0
     
@@ -93,6 +105,7 @@ def main():
     print(f"Flux through box: {flux_box:.5e}")
     
     theoretical_flux = np.sum(charges[:, 0]) / (8.854187817e-12)
+    print(f"Theoretical flux: {theoretical_flux:.5e}")
     
     plot_error_vs_density(charges, x_bounds, y_bounds, z_bounds, theoretical_flux)
     
